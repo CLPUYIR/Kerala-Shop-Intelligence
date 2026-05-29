@@ -4,6 +4,7 @@ import pandas as pd
 from pathlib import Path
 from tqdm import tqdm
 import asyncio
+import difflib
 
 # Ensure project root is in PYTHONPATH
 project_root = Path(__file__).resolve().parent
@@ -58,7 +59,7 @@ async def process_batch(session, batch_size=10):
     
     if not shops_to_process:
         print("No un-geocoded shops found.")
-        return
+        return False
         
     print(f"Processing batch of {len(shops_to_process)} shops...")
     scraper = GoogleMapsScraper(headless=True)
@@ -79,6 +80,20 @@ async def process_batch(session, batch_size=10):
         
         # 3. Playwright Scraping
         result = await scraper.scrape_shop(shop.search_query)
+        
+        # Verify if Google Maps redirected us to the right place
+        place_name = result.get('place_name')
+        if place_name and shop.clean_name:
+            # Simple similarity check
+            ratio = difflib.SequenceMatcher(None, shop.clean_name.lower(), place_name.lower()).ratio()
+            # Also check if one is a substring of the other
+            is_substring = shop.clean_name.lower() in place_name.lower() or place_name.lower() in shop.clean_name.lower()
+            
+            if ratio > 0.6 or is_substring:
+                shop.verified = True
+            else:
+                print(f"  [!] Verification Warning: Expected '{shop.clean_name}', got '{place_name}'")
+                shop.verified = False
         
         # Update record
         shop.google_maps_url = result.get('google_maps_url')
@@ -104,6 +119,22 @@ async def process_batch(session, batch_size=10):
         
         # Respectful delay between requests
         await asyncio.sleep(2)
+        
+    return True
+
+async def run_continuous(session):
+    print("Starting continuous extraction loop...")
+    iteration = 1
+    while True:
+        print(f"\n--- Starting Batch {iteration} ---")
+        has_more = await process_batch(session, batch_size=50)
+        if not has_more:
+            print("All shops in the database have been processed!")
+            break
+        iteration += 1
+        # Small sleep between batches to avoid overwhelming the system
+        print("Batch complete. Resting for 5 seconds before next batch...")
+        await asyncio.sleep(5)
 
 def main():
     print("--- Kerala Shop Intelligence Pipeline ---")
@@ -112,10 +143,15 @@ def main():
     # 1. Load Data
     load_initial_data(session)
     
-    # 2. Scrape Batch
-    asyncio.run(process_batch(session, batch_size=5))
-    
-    print("Batch processing complete.")
+    # 2. Scrape All Remaining
+    try:
+        asyncio.run(run_continuous(session))
+    except KeyboardInterrupt:
+        print("\nPipeline stopped gracefully by user.")
+    except Exception as e:
+        print(f"\nPipeline stopped due to error: {e}")
+    finally:
+        print("Pipeline shut down. Progress is saved in SQLite database.")
 
 if __name__ == "__main__":
     main()
