@@ -13,6 +13,7 @@ from config import INPUT_CSV
 from database.db_setup import init_db, ShopRecord
 from scraper.playwright_engine import GoogleMapsScraper
 from ai.query_builder import QueryBuilder
+from ocr.menu_extractor import MenuExtractor
 
 def load_initial_data(session):
     """Load data from CSV into SQLite if the database is empty."""
@@ -86,7 +87,16 @@ async def process_batch(session, batch_size=10):
         shop.reviews_count = result.get('reviews_count')
         shop.phone_number = result.get('phone_number')
         shop.website = result.get('website')
+        shop.image_url = result.get('image_url')
         shop.geocoded = True
+        
+        # 4. OCR & Menu Extraction
+        if shop.image_url:
+            extractor = MenuExtractor()
+            menu_data = await extractor.process_menu_image(shop.image_url)
+            shop.signature_dishes = menu_data.get("signature_dishes")
+            shop.vibe_summary = menu_data.get("vibe_summary")
+            shop.menu_extracted = True
         
         # Save to DB
         session.commit()

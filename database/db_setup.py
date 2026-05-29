@@ -25,6 +25,7 @@ class ShopRecord(Base):
     timings = Column(Text)
     phone_number = Column(String(50))
     website = Column(String(500))
+    image_url = Column(String(1000))
     
     # Vibe & Menu
     signature_dishes = Column(Text)

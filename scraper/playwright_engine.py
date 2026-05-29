@@ -14,7 +14,8 @@ class GoogleMapsScraper:
             "rating": None,
             "reviews_count": None,
             "phone_number": None,
-            "website": None
+            "website": None,
+            "image_url": None
         }
         
         async with async_playwright() as p:
@@ -83,6 +84,14 @@ class GoogleMapsScraper:
                                     result_data["reviews_count"] = int(parts[1].replace('(', '').replace(')', '').replace(',', '').strip())
                                 except ValueError:
                                     pass
+                                    
+                        # Extract Main Image URL
+                        img_btn = await page.query_selector('button img[decoding="async"]')
+                        if img_btn:
+                            src = await img_btn.get_attribute("src")
+                            if src and src.startswith("http"):
+                                result_data["image_url"] = src
+                                
                 except Exception as e:
                     print(f"  -> Error extracting details: {e}")
 
