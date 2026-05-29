@@ -84,16 +84,26 @@ async def process_batch(session, batch_size=10):
         # Verify if Google Maps redirected us to the right place
         place_name = result.get('place_name')
         if place_name and shop.clean_name:
-            # Simple similarity check
-            ratio = difflib.SequenceMatcher(None, shop.clean_name.lower(), place_name.lower()).ratio()
-            # Also check if one is a substring of the other
-            is_substring = shop.clean_name.lower() in place_name.lower() or place_name.lower() in shop.clean_name.lower()
+            # Strip generic words for better similarity checking
+            clean_base = shop.clean_name.lower().replace("toddy shop", "").replace("toddy", "").strip()
+            place_base = place_name.lower().replace("toddy shop", "").replace("toddy", "").strip()
             
-            if ratio > 0.6 or is_substring:
+            ratio = difflib.SequenceMatcher(None, clean_base, place_base).ratio()
+            is_substring = clean_base in place_base or place_base in clean_base
+            
+            if len(clean_base) > 2 and (ratio > 0.6 or is_substring):
                 shop.verified = True
             else:
-                print(f"  [!] Verification Warning: Expected '{shop.clean_name}', got '{place_name}'")
+                safe_expected = shop.clean_name.encode('ascii', 'ignore').decode('ascii')
+                safe_got = place_name.encode('ascii', 'ignore').decode('ascii')
+                print(f"  [!] Verification Warning: Expected '{safe_expected}', got '{safe_got}'")
                 shop.verified = False
+                
+                # IMPORTANT: Nullify the scraped data so we don't save false positives
+                result = {
+                    "google_maps_url": None, "address": None, "rating": None, 
+                    "reviews_count": None, "phone_number": None, "website": None, "image_url": None
+                }
         
         # Update record
         shop.google_maps_url = result.get('google_maps_url')
@@ -106,7 +116,7 @@ async def process_batch(session, batch_size=10):
         shop.geocoded = True
         
         # 4. OCR & Menu Extraction
-        if shop.image_url:
+        if shop.image_url and shop.verified:
             extractor = MenuExtractor()
             menu_data = await extractor.process_menu_image(shop.image_url)
             shop.signature_dishes = menu_data.get("signature_dishes")
@@ -115,7 +125,9 @@ async def process_batch(session, batch_size=10):
         
         # Save to DB
         session.commit()
-        print(f"  -> Saved {shop.clean_name}")
+        
+        safe_saved_name = shop.clean_name.encode('ascii', 'ignore').decode('ascii')
+        print(f"  -> Saved {safe_saved_name}")
         
         # Respectful delay between requests
         await asyncio.sleep(2)
