@@ -1,0 +1,7 @@
+playwright
+pandas
+duckduckgo_search
+sqlalchemy
+tqdm
+python-dotenv
+httpx
