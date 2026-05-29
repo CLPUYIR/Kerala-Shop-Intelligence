@@ -1,0 +1,14 @@
+# Environments
+.venv/
+__pycache__/
+
+# Database
+database/*.sqlite
+
+# Data exports
+data/*.csv
+data/*.xlsx
+data/*.json
+
+# Playwright
+.playwright/
