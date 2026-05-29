@@ -13,11 +13,11 @@ class GoogleMapsScraper:
             "address": None,
             "rating": None,
             "reviews_count": None,
-            "phone_number": None
+            "phone_number": None,
+            "website": None
         }
         
         async with async_playwright() as p:
-            # Use Chromium with stealth-like settings
             browser = await p.chromium.launch(headless=self.headless)
             context = await browser.new_context(
                 viewport={'width': 1280, 'height': 720},
@@ -25,58 +25,69 @@ class GoogleMapsScraper:
             )
             page = await context.new_page()
             
-            # Construct Google Maps search URL
             encoded_query = urllib.parse.quote(query)
             search_url = f"https://www.google.com/maps/search/{encoded_query}"
             
             try:
                 await page.goto(search_url, wait_until="domcontentloaded", timeout=15000)
-                
-                # Wait a bit for dynamic content or redirects to settle
-                await page.wait_for_timeout(3000)
-                
-                # Check if we landed on a specific place page or a search results list
-                current_url = page.url
-                if "/place/" not in current_url:
-                    # We are on a list of results, click the first one
+                await page.wait_for_timeout(3000) # Let the network settle
+
+                # If we are on a search results page (not a specific place), click the first result
+                if "/place/" not in page.url and "/maps/dir/" not in page.url:
                     try:
-                        # Google Maps uses 'a.hfpxzc' for place links in the side panel
                         first_result = await page.wait_for_selector('a.hfpxzc', timeout=5000)
                         if first_result:
                             await first_result.click()
-                            await page.wait_for_timeout(3000)
-                            current_url = page.url
-                    except Exception as e:
-                        print(f"  -> No specific results found or failed to click first result.")
+                            # Wait for the place details panel title to appear
+                            await page.wait_for_selector('h1.DUwDvf', timeout=5000)
+                            await page.wait_for_timeout(1000)
+                    except Exception:
+                        pass # Might already be on a place page with a weird URL, or no results
 
-                if "/place/" in current_url:
-                    # We are on the exact place page
-                    result_data["google_maps_url"] = current_url
-                    
-                    # Extract Address (Usually the first button with an aria-label starting with "Address: ")
-                    try:
-                        address_element = await page.query_selector('button[data-item-id="address"]')
-                        if address_element:
-                            aria_label = await address_element.get_attribute("aria-label")
-                            if aria_label:
-                                result_data["address"] = aria_label.replace("Address: ", "").strip()
-                    except Exception as e:
-                        pass
+                # Now attempt extraction if the place details panel is visible
+                try:
+                    # Verify the details panel is open by looking for the main title
+                    title_element = await page.query_selector('h1.DUwDvf')
+                    if title_element:
+                        result_data["google_maps_url"] = page.url
                         
-                    # Extract Rating and Reviews
-                    try:
-                        rating_element = await page.query_selector('div.F7nice')
-                        if rating_element:
-                            text_content = await rating_element.inner_text()
-                            parts = text_content.split('\n')
+                        # Extract Address
+                        addr_btn = await page.query_selector('button[data-item-id="address"]')
+                        if addr_btn:
+                            aria = await addr_btn.get_attribute("aria-label")
+                            if aria:
+                                result_data["address"] = aria.replace("Address: ", "").strip()
+                                
+                        # Extract Phone Number
+                        phone_btn = await page.query_selector('button[data-item-id^="phone:tel:"]')
+                        if phone_btn:
+                            aria = await phone_btn.get_attribute("aria-label")
+                            if aria:
+                                result_data["phone_number"] = aria.replace("Phone: ", "").strip()
+                                
+                        # Extract Website
+                        web_btn = await page.query_selector('a[data-item-id="authority"]')
+                        if web_btn:
+                            href = await web_btn.get_attribute("href")
+                            if href:
+                                result_data["website"] = href.strip()
+
+                        # Extract Rating and Reviews
+                        rating_div = await page.query_selector('div.F7nice')
+                        if rating_div:
+                            text = await rating_div.inner_text()
+                            parts = text.split('\n')
                             if len(parts) >= 2:
-                                result_data["rating"] = float(parts[0].strip())
-                                result_data["reviews_count"] = int(parts[1].replace('(', '').replace(')', '').replace(',', '').strip())
-                    except Exception as e:
-                        pass
-                        
+                                try:
+                                    result_data["rating"] = float(parts[0].strip())
+                                    result_data["reviews_count"] = int(parts[1].replace('(', '').replace(')', '').replace(',', '').strip())
+                                except ValueError:
+                                    pass
+                except Exception as e:
+                    print(f"  -> Error extracting details: {e}")
+
             except Exception as e:
-                print(f"  -> Error scraping {query}: {e}")
+                print(f"  -> Error loading page {query}: {e}")
             finally:
                 await browser.close()
                 

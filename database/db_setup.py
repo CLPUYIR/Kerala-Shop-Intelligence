@@ -24,6 +24,7 @@ class ShopRecord(Base):
     reviews_count = Column(Integer)
     timings = Column(Text)
     phone_number = Column(String(50))
+    website = Column(String(500))
     
     # Vibe & Menu
     signature_dishes = Column(Text)

@@ -85,6 +85,7 @@ async def process_batch(session, batch_size=10):
         shop.rating = result.get('rating')
         shop.reviews_count = result.get('reviews_count')
         shop.phone_number = result.get('phone_number')
+        shop.website = result.get('website')
         shop.geocoded = True
         
         # Save to DB
